@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Polenta Taragnarok!</title>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  background: #1a0a00;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 100dvh; min-height: 100vh;
+  font-family: 'Georgia', serif;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#gameContainer { position: relative; line-height: 0; }
+canvas {
+  display: block;
+  border: 3px solid #8B6914;
+  box-shadow: 0 0 30px #ff6600, 0 0 60px #cc3300;
+  /* logical size always BASE_W×BASE_H; CSS handles visual scaling */
+}
+
+/* ── TOP HUD ── */
+#ui {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 8px;
+  background: rgba(0,0,0,0.78);
+  color: #FFD700; font-weight: bold;
+  font-size: clamp(10px, 2.8vw, 14px);
+  min-height: 34px;
+  gap: 4px;
+}
+#livesDisplay { white-space: nowrap; }
+#levelDisplay { flex: 1; text-align: center; font-size: clamp(9px, 2.2vw, 12px); color: #FFA500; }
+#scoreDisplay { white-space: nowrap; }
+#muteBtn {
+  background: #5C3A0A; border: 2px solid #8B6914; color: #FFD700;
+  padding: 2px 6px; cursor: pointer; border-radius: 4px;
+  font-size: clamp(10px, 2vw, 13px);
+  min-width: 36px; min-height: 28px;
+  touch-action: manipulation; flex-shrink: 0;
+}
+#muteBtn:active { background: #FFD700; color: #1a0a00; }
+
+/* ── LANE BUTTONS (left overlay) ── */
+#laneButtons { position: absolute; top: 0; left: 0; z-index: 15; pointer-events: none; }
+.laneBtn {
+  position: absolute; left: 2px;
+  background: rgba(60,30,5,0.80);
+  border: 2px solid #7B5914;
+  border-radius: 8px;
+  color: #FFD700;
+  cursor: pointer;
+  pointer-events: all;
+  touch-action: manipulation;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1px;
+  user-select: none; -webkit-user-select: none;
+  transition: background .08s, border-color .08s;
+}
+.laneBtn .icon { line-height: 1; }
+.laneBtn .lbl { font-size: 8px; color: #CC9900; font-family: Georgia, serif; letter-spacing: 0.5px; line-height: 1; }
+.laneBtn.active {
+  background: rgba(160,100,0,0.90);
+  border-color: #FFD700;
+  box-shadow: 0 0 8px rgba(255,210,0,0.6);
+}
+.laneBtn:active { transform: scale(0.93); }
+
+/* ── OVERLAY (start / end screens) ── */
+#overlay {
+  position: absolute; top:0; left:0; right:0; bottom:0; z-index:30;
+  background: rgba(0,0,0,0.88);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #FFD700; text-align: center;
+  padding: 16px; overflow-y: auto;
+}
+#overlay h1 { font-size: clamp(18px, 5.5vw, 36px); text-shadow: 0 0 20px #ff6600; margin-bottom: 6px; }
+#overlay h2 { font-size: clamp(13px, 3.5vw, 22px); margin-bottom: 10px; color: #FFA500; }
+#overlay p  { font-size: clamp(10px, 2.5vw, 13px); margin: 3px 0; max-width: 360px; }
+.bigBtn {
+  margin-top: 14px;
+  background: #8B0000; border: 3px solid #FFD700; color: #FFD700;
+  padding: clamp(8px,2vw,12px) clamp(16px,4vw,28px);
+  font-size: clamp(13px, 3.5vw, 18px);
+  cursor: pointer; border-radius: 8px;
+  font-family: Georgia, serif; font-weight: bold;
+  touch-action: manipulation; min-height: 48px;
+}
+.bigBtn:active { background: #cc0000; transform: scale(0.97); }
+
+/* ── COMIC BUBBLE ── */
+#comic {
+  position: fixed; pointer-events: none; display: none;
+  background: white; border: 3px solid black;
+  border-radius: 12px; padding: 7px 11px;
+  font-size: clamp(10px, 2.5vw, 13px);
+  font-weight: bold; color: #000;
+  max-width: min(200px, 46vw);
+  text-align: center; line-height: 1.3;
+  box-shadow: 3px 3px 0 black; z-index: 100;
+}
+#comic::after {
+  content: ''; position: absolute;
+  bottom: -13px; left: 18px;
+  border: 7px solid transparent; border-top-color: black;
+}
+</style>
+</head>
+<body>
+<div id="gameContainer">
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="ui">
+    <span id="livesDisplay">❤️❤️❤️</span>
+    <span id="levelDisplay">Livello 1 · 0/15</span>
+    <span id="scoreDisplay">0 pt</span>
+    <button id="muteBtn" onclick="toggleMute()">🔊</button>
+  </div>
+
+  <!-- 4 lane-launch buttons, positioned by JS -->
+  <div id="laneButtons">
+    <button class="laneBtn active" id="laneBtn0" ontouchstart="tapLane(0,event)" onclick="tapLane(0,event)">
+      <span class="icon">🍲</span><span class="lbl">LANCIA</span>
+    </button>
+    <button class="laneBtn" id="laneBtn1" ontouchstart="tapLane(1,event)" onclick="tapLane(1,event)">
+      <span class="icon">🍲</span><span class="lbl">LANCIA</span>
+    </button>
+    <button class="laneBtn" id="laneBtn2" ontouchstart="tapLane(2,event)" onclick="tapLane(2,event)">
+      <span class="icon">🍲</span><span class="lbl">LANCIA</span>
+    </button>
+    <button class="laneBtn" id="laneBtn3" ontouchstart="tapLane(3,event)" onclick="tapLane(3,event)">
+      <span class="icon">🍲</span><span class="lbl">LANCIA</span>
+    </button>
+  </div>
+
+  <div id="overlay">
+    <h1>🍲 POLENTA TARAGNAROK! 🍲</h1>
+    <h2>La Taverna di Midgard</h2>
+    <p>I vichinghi hanno fame e vogliono polenta taragna!</p>
+    <p style="margin-top:8px">📱 <b>TAP sul bancone</b> = lancia scodella su quella fila</p>
+    <p>⌨️ <b>SPAZIO/INVIO</b> = lancia &nbsp;|&nbsp; <b>W/S · ↑↓</b> = cambia bancone</p>
+    <p style="margin-top:6px;color:#FFA500">⚠️ Attenzione a Thor, Odino e Loki!</p>
+    <button class="bigBtn" onclick="startGame()">⚔️ INIZIA LA BATTAGLIA! ⚔️</button>
+    <p style="margin-top:12px;font-size:10px;color:#886633">Gioco sviluppato da Antonio Moliterni (Ananasso Malvagio)</p>
+  </div>
+
+  <div id="comic"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+
+// Logical (fixed) game resolution
+const BASE_W = 640, BASE_H = 480;
+let scale = 1;
+
+// canvas always drawn at BASE_W × BASE_H; CSS zoom handles display scaling
+function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  scale = Math.min((vw - 6) / BASE_W, (vh - 6) / BASE_H);
+  scale = Math.max(0.3, Math.min(scale, 1.6));
+  canvas.width  = BASE_W;
+  canvas.height = BASE_H;
+  canvas.style.width  = Math.round(BASE_W * scale) + 'px';
+  canvas.style.height = Math.round(BASE_H * scale) + 'px';
+  updateLaneButtons();
+}
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+resize();
+
+// ════════════════════════════════════════
+//  LANE BUTTONS – position & sizing
+// ════════════════════════════════════════
+const NUM_LANES = 4;
+const LANE_Y    = [100, 185, 270, 355]; // logical y-centres
+
+function updateLaneButtons() {
+  // button width: at least 44px touch target, grows a bit on desktop
+  const btnW = Math.round(Math.max(44, Math.min(54, 54 * scale)));
+  // button height: fills most of the 85-px logical gap between lanes
+  const btnH = Math.round(Math.max(44, Math.min(70, 75 * scale)));
+  const iconSize = Math.max(14, Math.min(20, Math.round(20 * scale)));
+
+  for (let i = 0; i < NUM_LANES; i++) {
+    const btn = document.getElementById('laneBtn' + i);
+    const cy  = Math.round(LANE_Y[i] * scale);          // CSS px from container top
+    btn.style.top    = (cy - Math.round(btnH / 2)) + 'px';
+    btn.style.width  = btnW + 'px';
+    btn.style.height = btnH + 'px';
+    btn.querySelector('.icon').style.fontSize = iconSize + 'px';
+  }
+}
+
+function updateLaneBtnStyles() {
+  for (let i = 0; i < NUM_LANES; i++) {
+    document.getElementById('laneBtn' + i).classList.toggle('active', i === activeLane);
+  }
+}
+
+// ════════════════════════════════════════
+//  AUDIO ENGINE
+// ════════════════════════════════════════
+let audioCtx = null, muted = false, bgmInterval = null;
+
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function playTone(freq, type, duration, vol = 0.3, startDelay = 0) {
+  if (muted) return;
+  const ac = getAudio();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.connect(g); g.connect(ac.destination);
+  o.type = type; o.frequency.value = freq;
+  const t = ac.currentTime + startDelay;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  o.start(t); o.stop(t + duration);
+}
+function playSplash()   { [300,250,200,150].forEach((f,i)=>playTone(f,'sine',0.1,0.2,i*0.05)); }
+function playMjolnir()  { [800,400,200,100].forEach((f,i)=>playTone(f,'sawtooth',0.15,0.4,i*0.04)); setTimeout(()=>playTone(60,'square',0.5,0.5),200); }
+function playLokiLaugh(){ [600,700,500,800,400].forEach((f,i)=>playTone(f,'sine',0.08,0.2,i*0.06)); }
+function playEat()      { [200,300,400,300,200].forEach((f,i)=>playTone(f,'sine',0.1,0.15,i*0.04)); }
+function playLevelUp()  { [261,330,392,523,659].forEach((f,i)=>playTone(f,'square',0.15,0.3,i*0.08)); }
+function playGameOver() { [392,330,261,220,196].forEach((f,i)=>playTone(f,'sawtooth',0.2,0.4,i*0.12)); }
+
+const bgmNotes = [261,293,329,349,392,349,329,293];
+let bgmIdx = 0;
+function startBGM() {
+  if (bgmInterval) clearInterval(bgmInterval);
+  bgmInterval = setInterval(() => {
+    if (!muted) playTone(bgmNotes[bgmIdx % bgmNotes.length], 'triangle', 0.18, 0.08);
+    bgmIdx++;
+  }, 220);
+}
+function stopBGM() { if (bgmInterval) { clearInterval(bgmInterval); bgmInterval = null; } }
+function toggleMute() {
+  muted = !muted;
+  document.getElementById('muteBtn').textContent = muted ? '🔇' : '🔊';
+  if (muted) stopBGM(); else if (gameRunning) startBGM();
+}
+
+// ════════════════════════════════════════
+//  GAME STATE
+// ════════════════════════════════════════
+const COUNTER_H   = 30;
+const INNKEEPER_X = 60;
+const BOWL_SPEED  = 220;
+const MAX_LIVES   = 3;
+
+let gameRunning = false, gamePaused = false;
+let score = 0, lives = MAX_LIVES, level = 1;
+let activeLane = 0;
+let bowls = [], customers = [], particles = [];
+let spawnTimer = 0, spawnInterval = 3.0;
+let levelGoal = 15, servedCount = 0;
+let lastTime = 0;
+let mjolnirObj = null;
+
+// ════════════════════════════════════════
+//  DRAWING HELPERS
+// ════════════════════════════════════════
+function drawRoundRect(x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+  if (fill)   { ctx.fillStyle=fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=2; ctx.stroke(); }
+}
+
+// ════════════════════════════════════════
+//  BACKGROUND
+// ════════════════════════════════════════
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0,0,0,BASE_H);
+  grad.addColorStop(0,'#2d1a0a'); grad.addColorStop(1,'#1a0800');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,BASE_W,BASE_H);
+
+  ctx.strokeStyle='#3d2a1a'; ctx.lineWidth=1;
+  for (let r=0;r<10;r++) for (let c=0;c<10;c++) ctx.strokeRect(c*64+(r%2)*32,r*52,63,51);
+
+  drawTorch(80,55); drawTorch(320,55); drawTorch(560,55);
+
+  ctx.fillStyle='#8B0000';
+  ctx.beginPath(); ctx.moveTo(240,0); ctx.lineTo(400,0); ctx.lineTo(390,40); ctx.lineTo(320,50); ctx.lineTo(250,40); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#FFD700'; ctx.font='bold 12px Georgia'; ctx.textAlign='center';
+  ctx.fillText('⚡ POLENTA TARAGNAROK ⚡', 320, 28);
+
+  for (let i=0;i<3;i++) drawMug(480+i*35, 60);
+  for (let i=0;i<NUM_LANES;i++) drawCounter(i);
+}
+
+function drawTorch(x, y) {
+  ctx.fillStyle='#8B4513'; ctx.fillRect(x-3,y,6,18);
+  const t = Date.now()/200;
+  ctx.fillStyle='#FF4500'; ctx.beginPath(); ctx.ellipse(x,y,7+Math.sin(t+x)*1.5,12,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#FFD700'; ctx.beginPath(); ctx.ellipse(x,y+2,4+Math.sin(t*1.3),8,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#FFFF00'; ctx.beginPath(); ctx.ellipse(x,y+4,2,4,0,0,Math.PI*2); ctx.fill();
+  const glow = ctx.createRadialGradient(x,y,0,x,y,40);
+  glow.addColorStop(0,'rgba(255,150,0,0.15)'); glow.addColorStop(1,'rgba(255,150,0,0)');
+  ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(x,y,40,0,Math.PI*2); ctx.fill();
+}
+
+function drawMug(x, y) {
+  ctx.fillStyle='#8B6914'; ctx.fillRect(x,y,16,20);
+  ctx.fillStyle='#A0522D'; ctx.fillRect(x+14,y+5,5,10);
+  ctx.fillStyle='rgba(200,230,255,0.4)'; ctx.fillRect(x+2,y+2,12,6);
+}
+
+function drawCounter(lane) {
+  const y = LANE_Y[lane];
+  const wg = ctx.createLinearGradient(0,y-COUNTER_H/2,0,y+COUNTER_H/2);
+  wg.addColorStop(0,'#8B5E3C'); wg.addColorStop(0.5,'#6B4226'); wg.addColorStop(1,'#4a2d12');
+  drawRoundRect(40,y-COUNTER_H/2,BASE_W-50,COUNTER_H,4,wg,'#3d1f08');
+  ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
+  for (let gx=60;gx<BASE_W-20;gx+=20) {
+    ctx.beginPath(); ctx.moveTo(gx,y-COUNTER_H/2+2); ctx.lineTo(gx+5,y+COUNTER_H/2-2); ctx.stroke();
+  }
+}
+
+// ════════════════════════════════════════
+//  INNKEEPER
+// ════════════════════════════════════════
+function drawInnkeeper() {
+  const x = INNKEEPER_X, y = LANE_Y[activeLane];
+  drawRoundRect(x-18,y-38,36,50,5,'#8B4513','#5C2D0A');
+  drawRoundRect(x-10,y-28,20,38,3,'#F5F0E0','#ccc');
+  ctx.fillStyle='#FDBCB4'; ctx.beginPath(); ctx.arc(x,y-48,14,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#d4956a'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#8B0000';
+  ctx.beginPath(); ctx.moveTo(x-16,y-58); ctx.lineTo(x+16,y-58); ctx.lineTo(x+10,y-90); ctx.lineTo(x-10,y-90); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#6B0000'; ctx.fillRect(x-17,y-62,34,6);
+  ctx.fillStyle='#333';
+  ctx.beginPath(); ctx.arc(x-5,y-50,2.5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x+5,y-50,2.5,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#a0522d'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(x,y-44,5,0.2,Math.PI-0.2); ctx.stroke();
+  ctx.fillStyle='#5C2D0A';
+  ctx.beginPath(); ctx.ellipse(x-4,y-46,4,2,0.3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+4,y-46,4,2,-0.3,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#8B4513'; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x+10,y-20); ctx.lineTo(x+35,y-15); ctx.stroke();
+}
+
+// ════════════════════════════════════════
+//  BOWLS
+// ════════════════════════════════════════
+function drawBowl(bowl) {
+  const x = bowl.x, y = LANE_Y[bowl.lane];
+  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x,y+8,14,4,0,0,Math.PI*2); ctx.fill();
+  const bg = ctx.createRadialGradient(x-3,y-3,2,x,y,12);
+  bg.addColorStop(0,'#E8E0C0'); bg.addColorStop(1,'#C8B890');
+  ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(x,y,11,Math.PI,Math.PI*2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#D4A03A'; ctx.beginPath(); ctx.ellipse(x,y-3,9,6,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#E8B84B'; ctx.beginPath(); ctx.ellipse(x-1,y-5,6,4,0,0,Math.PI*2); ctx.fill();
+  const t = Date.now()/500;
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5;
+  for (let s=-1;s<=1;s+=2) {
+    ctx.beginPath(); ctx.moveTo(x+s*3,y-14);
+    ctx.quadraticCurveTo(x+s*5+Math.sin(t+s)*3,y-20,x+s*2+Math.sin(t*1.5+s)*3,y-26); ctx.stroke();
+  }
+}
+
+// ════════════════════════════════════════
+//  CUSTOMERS
+// ════════════════════════════════════════
+const CUST_CFG = {
+  viking:{ color:'#4A90D9', hatColor:'#2C5F8A' },
+  loki:  { color:'#2ECC71', hatColor:'#1a7a43' },
+  thor:  { color:'#E74C3C', hatColor:'#922B21' },
+  odin:  { color:'#8E44AD', hatColor:'#5B2C6F' }
+};
+
+function drawCustomer(c) {
+  const cfg = CUST_CFG[c.type];
+  ctx.save();
+  ctx.translate(c.x, LANE_Y[c.lane]);
+  ctx.globalAlpha = (c.type==='loki' && c.teleporting) ? 0.3+Math.random()*0.7 : (c.alpha||1);
+
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,12,16,4,0,0,Math.PI*2); ctx.fill();
+  drawRoundRect(-14,-28,28,40,5,cfg.color,'#1a1a1a');
+  ctx.fillStyle='#5C3A1E'; ctx.fillRect(-14,-4,28,6);
+  ctx.fillStyle='#FFD700'; ctx.fillRect(-5,-5,10,8);
+  ctx.fillStyle='#FDBCB4'; ctx.beginPath(); ctx.arc(0,-38,13,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#d4956a'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#222';
+  ctx.beginPath(); ctx.arc(-4,-40,2.5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(4,-40,2.5,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#333'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(-7,-43); ctx.lineTo(-1,-41); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(7,-43); ctx.lineTo(1,-41); ctx.stroke();
+  ctx.strokeStyle='#8B4513'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(0,-34,5,0.3,Math.PI-0.3); ctx.stroke();
+
+  if (c.type==='viking') {
+    drawRoundRect(-13,-56,26,20,3,cfg.hatColor,'#1a1a1a');
+    ctx.fillStyle='#C0C0C0';
+    ctx.beginPath(); ctx.moveTo(-13,-52); ctx.lineTo(-22,-38); ctx.lineTo(-17,-36); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(13,-52);  ctx.lineTo(22,-38);  ctx.lineTo(17,-36);  ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#8B6914'; ctx.beginPath(); ctx.ellipse(0,-28,10,8,0,0,Math.PI); ctx.fill();
+  }
+  if (c.type==='loki') {
+    ctx.fillStyle=cfg.hatColor;
+    ctx.beginPath(); ctx.moveTo(-12,-50); ctx.lineTo(12,-50); ctx.lineTo(5,-80); ctx.lineTo(-5,-80); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#FFD700'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(5,-80); ctx.quadraticCurveTo(20,-85,15,-72); ctx.stroke();
+    ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(0,-33,6,-0.5,Math.PI+0.5); ctx.stroke();
+    ctx.fillStyle='#27AE60';
+    ctx.beginPath(); ctx.moveTo(-14,-20); ctx.lineTo(-22,10); ctx.lineTo(22,10); ctx.lineTo(14,-20); ctx.closePath(); ctx.fill();
+  }
+  if (c.type==='thor') {
+    drawRoundRect(-13,-58,26,22,3,cfg.hatColor,'#1a1a1a');
+    ctx.fillStyle='#C0C0C0';
+    ctx.beginPath(); ctx.moveTo(-13,-52); ctx.quadraticCurveTo(-28,-45,-25,-36); ctx.quadraticCurveTo(-18,-38,-13,-48); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(13,-52);  ctx.quadraticCurveTo(28,-45,25,-36);  ctx.quadraticCurveTo(18,-38,13,-48);  ctx.fill();
+    ctx.fillStyle='#C0392B';
+    ctx.beginPath(); ctx.moveTo(-14,-20); ctx.lineTo(-20,15); ctx.lineTo(20,15); ctx.lineTo(14,-20); ctx.closePath(); ctx.fill();
+    if (!c.mjolnirThrown) { ctx.fillStyle='#808080'; drawRoundRect(-5,0,10,8,2,'#808080','#555'); }
+  }
+  if (c.type==='odin') {
+    ctx.fillStyle=cfg.hatColor;
+    ctx.beginPath(); ctx.ellipse(0,-55,20,5,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-10,-55); ctx.lineTo(-8,-78); ctx.lineTo(8,-78); ctx.lineTo(10,-55); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#1a1a1a'; drawRoundRect(-8,-42,10,7,3,'#1a1a1a');
+    ctx.fillStyle='#E0E0E0';
+    ctx.beginPath(); ctx.moveTo(-10,-30); ctx.lineTo(-12,15); ctx.lineTo(12,15); ctx.lineTo(10,-30); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#8B4513'; ctx.lineWidth=4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(16,-28); ctx.lineTo(16,20); ctx.stroke();
+    ctx.fillStyle='#FFD700'; ctx.beginPath(); ctx.arc(16,-30,5,0,Math.PI*2); ctx.fill();
+  }
+
+  if (c.eating) {
+    const sp = Math.sin(Date.now()/100)*0.5;
+    ctx.strokeStyle='#C0C0C0'; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-5,-28); ctx.lineTo(-12+sp*5,-18); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='bold 10px Georgia';
+    ctx.textAlign='center'; ctx.fillText('Mmm!', 0, -68);
+  }
+  if (c.type==='odin' && c.bowlsNeeded===2) {
+    ctx.fillStyle='#FFD700'; ctx.font='bold 11px Georgia'; ctx.textAlign='center';
+    ctx.fillText(c.bowlsHit===0?'×2':'×1', 18, -65);
+  }
+  ctx.restore();
+}
+
+// ════════════════════════════════════════
+//  MJOLNIR
+// ════════════════════════════════════════
+function drawMjolnirProjectile(m) {
+  ctx.save();
+  ctx.translate(m.x, m.y); ctx.rotate(m.angle);
+  ctx.fillStyle='#8B4513'; ctx.fillRect(-3,-16,6,12);
+  drawRoundRect(-10,-28,20,12,3,'#808080','#555');
+  ctx.fillStyle='#FFD700'; ctx.font='6px Georgia'; ctx.textAlign='center'; ctx.fillText('ᚦ',0,-20);
+  ctx.strokeStyle='rgba(255,220,0,0.8)'; ctx.lineWidth=1.5;
+  for (let i=0;i<3;i++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random()*30-15,Math.random()*40-30);
+    ctx.lineTo(Math.random()*30-15,Math.random()*40-30); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ════════════════════════════════════════
+//  PARTICLES
+// ════════════════════════════════════════
+function spawnParticles(x, y, color, count=8) {
+  for (let i=0;i<count;i++) {
+    const a=(Math.PI*2/count)*i+Math.random()*0.5, sp=50+Math.random()*100;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,color,size:3+Math.random()*5});
+  }
+}
+function updateParticles(dt) {
+  for (let i=particles.length-1;i>=0;i--) {
+    const p=particles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=200*dt; p.life-=dt*2;
+    if (p.life<=0) particles.splice(i,1);
+  }
+}
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha=Math.max(0,p.life);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+// ════════════════════════════════════════
+//  COMIC BUBBLE
+// ════════════════════════════════════════
+function showComic(text, lx, ly, duration=2500) {
+  const el  = document.getElementById('comic');
+  const box = document.getElementById('gameContainer').getBoundingClientRect();
+  el.style.display = 'block';
+  el.textContent   = text;
+  const sx = box.left + lx * scale;
+  const sy = box.top  + ly * scale - 80;
+  el.style.left = Math.min(sx, window.innerWidth - 215) + 'px';
+  el.style.top  = Math.max(box.top + 40, sy) + 'px';
+  el.style.position = 'fixed';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display='none'; }, duration);
+}
+
+// ════════════════════════════════════════
+//  SPAWN
+// ════════════════════════════════════════
+function spawnCustomer() {
+  const lane = Math.floor(Math.random()*NUM_LANES);
+  const busy = customers.filter(c=>c.lane===lane&&!c.eating&&!c.returning);
+  if (busy.length>0 && busy.some(c=>c.x>BASE_W-80)) return;
+
+  let type='viking';
+  const r=Math.random();
+  if (level>=2 && r<0.15) type='loki';
+  else if (level>=3 && r<0.25 && r>=0.15) type='thor';
+  else if (level>=4 && r<0.32 && r>=0.25) type='odin';
+
+  const spds=[55,70,90,115,140];
+  let sp=spds[Math.min(level-1,4)]+Math.random()*20;
+  if (type==='thor') sp*=1.3; if (type==='loki') sp*=0.8; if (type==='odin') sp*=0.7;
+
+  customers.push({
+    x:BASE_W-20, lane, type, speed:sp, baseSpeed:sp,
+    eating:false, returning:false,
+    bowlsNeeded:type==='odin'?2:1, bowlsHit:0,
+    alpha:1, teleporting:false, teleTimer:0,
+    mjolnirThrown:false, thorWarned:false,
+    patience:type==='thor'?(3.5-level*0.4):99, patienceTimer:0
+  });
+}
+
+// ════════════════════════════════════════
+//  INPUT
+// ════════════════════════════════════════
+function launchBowl(lane) {
+  if (!gameRunning||gamePaused) return;
+  if (bowls.some(b=>b.lane===lane)) return;
+  bowls.push({x:INNKEEPER_X+38, lane, speed:BOWL_SPEED});
+  playSplash();
+}
+
+// Lane button tap
+function tapLane(i, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!gameRunning||gamePaused) return;
+  activeLane=i;
+  updateLaneBtnStyles();
+  launchBowl(i);
+}
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (!gameRunning) return;
+  if (e.code==='Space'||e.code==='Enter') { e.preventDefault(); launchBowl(activeLane); }
+  if (e.code==='KeyW'||e.code==='ArrowUp')   { e.preventDefault(); activeLane=Math.max(0,activeLane-1); updateLaneBtnStyles(); }
+  if (e.code==='KeyS'||e.code==='ArrowDown') { e.preventDefault(); activeLane=Math.min(NUM_LANES-1,activeLane+1); updateLaneBtnStyles(); }
+});
+
+// Canvas click (right part — left part is covered by buttons)
+canvas.addEventListener('click', e => {
+  if (!gameRunning) return;
+  const rect=canvas.getBoundingClientRect();
+  const cx=(e.clientX-rect.left)/scale;
+  const cy=(e.clientY-rect.top)/scale;
+  if (cx < 60) return; // ignore button area
+  let cl=0, md=9999;
+  for (let i=0;i<NUM_LANES;i++){const d=Math.abs(cy-LANE_Y[i]);if(d<md){md=d;cl=i;}}
+  activeLane=cl; updateLaneBtnStyles(); launchBowl(activeLane);
+});
+
+// Canvas touch (fallback for tapping the play area directly)
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!gameRunning) return;
+  const rect=canvas.getBoundingClientRect();
+  const t=e.touches[0];
+  const cx=(t.clientX-rect.left)/scale;
+  const cy=(t.clientY-rect.top)/scale;
+  if (cx < 60) return; // lane buttons handle this
+  let cl=0, md=9999;
+  for (let i=0;i<NUM_LANES;i++){const d=Math.abs(cy-LANE_Y[i]);if(d<md){md=d;cl=i;}}
+  activeLane=cl; updateLaneBtnStyles(); launchBowl(activeLane);
+},{passive:false});
+
+// ════════════════════════════════════════
+//  LIFE / UI
+// ════════════════════════════════════════
+function loseLife(n=1) {
+  lives-=n; updateUI();
+  spawnParticles(INNKEEPER_X, LANE_Y[activeLane]-20, '#FF0000', 12);
+  if (lives<=0) triggerGameOver();
+}
+
+function updateUI() {
+  document.getElementById('livesDisplay').textContent = '❤️'.repeat(Math.max(0,lives));
+  document.getElementById('levelDisplay').textContent  = `Lv.${level} · ${servedCount}/${levelGoal}`;
+  document.getElementById('scoreDisplay').textContent  = score+' pt';
+}
+
+// ════════════════════════════════════════
+//  LEVELS
+// ════════════════════════════════════════
+function advanceLevel() {
+  level++; servedCount=0;
+  levelGoal=12+level*3;
+  spawnInterval=[3.0,2.4,2.0,1.6,1.2][Math.min(level-1,4)];
+  playLevelUp();
+  showComic('🍲 La polenta taragna conquista il Valhalla!', BASE_W/2, BASE_H/2, 3000);
+  updateUI();
+  if (level>5) triggerVictory();
+}
+
+function triggerGameOver() {
+  gameRunning=false; stopBGM(); playGameOver();
+  showComic('😱 La taverna è disonorata! Odino disapprova!', BASE_W/2, BASE_H/3, 99999);
+  setTimeout(()=>showEndScreen(false), 1800);
+}
+function triggerVictory() {
+  gameRunning=false; stopBGM(); playLevelUp();
+  setTimeout(()=>showEndScreen(true), 1000);
+}
+
+function showEndScreen(won) {
+  document.getElementById('comic').style.display='none';
+  const ov=document.getElementById('overlay');
+  ov.innerHTML=`
+    <h1>${won?'🏆 VITTORIA!':'💀 GAME OVER'}</h1>
+    <h2>${won?'Il Valhalla onora la tua polenta!':'La taverna è disonorata!'}</h2>
+    <p style="font-size:clamp(16px,4vw,22px);margin:10px 0">Punti: <b>${score}</b></p>
+    <p>Livello raggiunto: ${level}</p>
+    <button class="bigBtn" onclick="resetGame()">⚔️ GIOCA ANCORA ⚔️</button>
+    <p style="margin-top:12px;font-size:10px;color:#886633">Gioco sviluppato da Antonio Moliterni (Ananasso Malvagio)</p>
+  `;
+  ov.style.display='flex';
+}
+
+// ════════════════════════════════════════
+//  UPDATE LOOP
+// ════════════════════════════════════════
+function update(dt) {
+  if (!gameRunning||gamePaused) return;
+
+  spawnTimer+=dt;
+  if (spawnTimer>=spawnInterval) {
+    spawnTimer=0; spawnCustomer();
+    if (level>=3&&Math.random()<0.3) setTimeout(spawnCustomer,600);
+  }
+
+  // bowls
+  for (let i=bowls.length-1;i>=0;i--) {
+    const b=bowls[i]; b.x+=b.speed*dt;
+    let hit=false;
+    for (const c of customers) {
+      if (c.lane!==b.lane||c.eating||c.returning) continue;
+      if (Math.abs(b.x-c.x)<22) {
+        hit=true; c.bowlsHit++;
+        spawnParticles(c.x,LANE_Y[c.lane]-10,'#D4A03A',10); playEat();
+        if (c.type==='odin'&&c.bowlsHit<c.bowlsNeeded) {
+          c.speed*=0.5; showComic('Ancora...', c.x, LANE_Y[c.lane]-60, 1000);
+        } else {
+          c.eating=true; c.eatTimer=1.5;
+          score+=c.type==='odin'?30:c.type==='thor'?25:c.type==='loki'?20:10;
+          if (c.type==='odin') showComic('Per Valhalla, ottima polenta taragna!', c.x, LANE_Y[c.lane]-80, 2500);
+          servedCount++; updateUI();
+          if (servedCount>=levelGoal) advanceLevel();
+        }
+        break;
+      }
+    }
+    if (hit||b.x>BASE_W-10) {
+      if (!hit) { loseLife(1); spawnParticles(BASE_W-20,LANE_Y[b.lane],'#D4A03A',6); }
+      bowls.splice(i,1);
+    }
+  }
+
+  // customers
+  for (let i=customers.length-1;i>=0;i--) {
+    const c=customers[i];
+    if (c.eating) { c.eatTimer-=dt; if (c.eatTimer<=0){c.eating=false;c.returning=true;c.speed=c.baseSpeed*1.5;} continue; }
+    if (c.returning) { c.x+=c.speed*dt; if (c.x>BASE_W+30) customers.splice(i,1); continue; }
+
+    if (c.type==='thor'&&!c.mjolnirThrown) {
+      c.patienceTimer+=dt;
+      if (!c.thorWarned&&c.patienceTimer>c.patience*0.7) {
+        c.thorWarned=true; showComic('PER ASGARD! VOGLIO LA POLENTA!', c.x, LANE_Y[c.lane]-80, 2000);
+      }
+      if (c.patienceTimer>c.patience) {
+        c.mjolnirThrown=true; playMjolnir();
+        showComic('⚡ PER ASGARD! ⚡', c.x, LANE_Y[c.lane]-80, 2000);
+        mjolnirObj={x:c.x,y:LANE_Y[c.lane]-20,angle:0,lane:c.lane,speed:250,hit:false};
+        loseLife(2);
+        c.returning=true; c.speed=c.baseSpeed;
+      }
+    }
+
+    if (c.type==='loki') {
+      c.teleTimer-=dt;
+      if (c.teleTimer<=0) {
+        c.x-=30+Math.random()*60; c.teleTimer=0.5+Math.random();
+        c.teleporting=true; setTimeout(()=>{c.teleporting=false;},200);
+        if (Math.random()<0.3) { playLokiLaugh(); showComic('Eheheheh!', c.x, LANE_Y[c.lane]-70, 1500); }
+      }
+    } else {
+      c.x-=c.speed*dt;
+    }
+
+    if (c.x<INNKEEPER_X+30) {
+      loseLife(1);
+      spawnParticles(INNKEEPER_X+20,LANE_Y[c.lane]-10,'#FF4444',15);
+      customers.splice(i,1);
+    }
+  }
+
+  // mjolnir flight
+  if (mjolnirObj&&!mjolnirObj.hit) {
+    mjolnirObj.x-=mjolnirObj.speed*dt; mjolnirObj.angle+=8*dt;
+    if (mjolnirObj.x<INNKEEPER_X+40) {
+      mjolnirObj.hit=true;
+      spawnParticles(INNKEEPER_X+40,LANE_Y[mjolnirObj.lane]-20,'#FFD700',20);
+      setTimeout(()=>{mjolnirObj=null;},500);
+    }
+  }
+
+  updateParticles(dt);
+}
+
+// ════════════════════════════════════════
+//  DRAW LOOP
+// ════════════════════════════════════════
+function draw() {
+  ctx.clearRect(0,0,BASE_W,BASE_H);
+  drawBackground();
+  for (const b of bowls) drawBowl(b);
+  for (const c of customers) drawCustomer(c);
+  if (mjolnirObj) drawMjolnirProjectile(mjolnirObj);
+  drawInnkeeper();
+  drawParticles();
+
+  // Active lane arrow (drawn on canvas near innkeeper)
+  for (let i=0;i<NUM_LANES;i++) {
+    if (i===activeLane) {
+      ctx.fillStyle='rgba(255,215,0,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(60,LANE_Y[i]-9); ctx.lineTo(72,LANE_Y[i]); ctx.lineTo(60,LANE_Y[i]+9);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+}
+
+// ════════════════════════════════════════
+//  MAIN LOOP
+// ════════════════════════════════════════
+function gameLoop(ts) {
+  if (!lastTime) lastTime=ts;
+  const dt=Math.min((ts-lastTime)/1000,0.05);
+  lastTime=ts;
+  update(dt); draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function startGame() {
+  document.getElementById('overlay').style.display='none';
+  resetGame();
+  requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+  score=0; lives=MAX_LIVES; level=1; servedCount=0; levelGoal=15;
+  bowls=[]; customers=[]; particles=[]; mjolnirObj=null;
+  activeLane=0; spawnTimer=0; spawnInterval=3.0; lastTime=0;
+  gameRunning=true; gamePaused=false;
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('comic').style.display='none';
+  updateUI(); updateLaneBtnStyles(); startBGM();
+  try { getAudio().resume(); } catch(e){}
+}
+
+// First background render before game starts
+requestAnimationFrame(() => { ctx.clearRect(0,0,BASE_W,BASE_H); drawBackground(); });
+</script>
+</body>
+</html>
