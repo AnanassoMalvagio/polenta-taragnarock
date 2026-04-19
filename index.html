@@ -78,13 +78,19 @@ canvas {
   position: absolute; top:0; left:0; right:0; bottom:0; z-index:30;
   background: rgba(0,0,0,0.88);
   display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
+  align-items: center;
+  /* flex-start + padding = items stack from top, never overlap;
+     justify-content:center + overflow is a known CSS trap that causes overlapping */
+  justify-content: flex-start;
   color: #FFD700; text-align: center;
-  padding: 16px; overflow-y: auto;
+  padding: clamp(8px, 3vh, 20px) 14px;
+  gap: clamp(3px, 1.2vh, 9px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
-#overlay h1 { font-size: clamp(18px, 5.5vw, 36px); text-shadow: 0 0 20px #ff6600; margin-bottom: 6px; }
-#overlay h2 { font-size: clamp(13px, 3.5vw, 22px); margin-bottom: 10px; color: #FFA500; }
-#overlay p  { font-size: clamp(10px, 2.5vw, 13px); margin: 3px 0; max-width: 360px; }
+#overlay h1 { font-size: clamp(16px, 5vw, 34px); text-shadow: 0 0 20px #ff6600; }
+#overlay h2 { font-size: clamp(12px, 3.2vw, 20px); color: #FFA500; }
+#overlay p  { font-size: clamp(10px, 2.4vw, 13px); max-width: 360px; }
 .bigBtn {
   margin-top: 14px;
   background: #8B0000; border: 3px solid #FFD700; color: #FFD700;
@@ -145,11 +151,11 @@ canvas {
     <h1>🍲 POLENTA TARAGNAROK! 🍲</h1>
     <h2>La Taverna di Midgard</h2>
     <p>I vichinghi hanno fame e vogliono polenta taragna!</p>
-    <p style="margin-top:8px">📱 <b>TAP sul bancone</b> = lancia scodella su quella fila</p>
+    <p>📱 <b>TAP sul bancone</b> = lancia scodella su quella fila</p>
     <p>⌨️ <b>SPAZIO/INVIO</b> = lancia &nbsp;|&nbsp; <b>W/S · ↑↓</b> = cambia bancone</p>
-    <p style="margin-top:6px;color:#FFA500">⚠️ Attenzione a Thor, Odino e Loki!</p>
+    <p style="color:#FFA500">⚠️ Attenzione a Thor, Odino e Loki!</p>
     <button class="bigBtn" onclick="startGame()">⚔️ INIZIA LA BATTAGLIA! ⚔️</button>
-    <p style="margin-top:12px;font-size:10px;color:#886633">Gioco sviluppato da Antonio Moliterni (Ananasso Malvagio)</p>
+    <p style="font-size:10px;color:#886633">Gioco sviluppato da Antonio Moliterni (Ananasso Malvagio)</p>
   </div>
 
   <div id="comic"></div>
@@ -175,15 +181,16 @@ function resize() {
   updateLaneButtons();
 }
 
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 150));
-resize();
-
 // ════════════════════════════════════════
 //  LANE BUTTONS – position & sizing
 // ════════════════════════════════════════
+// Declared here so resize() → updateLaneButtons() can read them on first call
 const NUM_LANES = 4;
 const LANE_Y    = [100, 185, 270, 355]; // logical y-centres
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+resize();
 
 function updateLaneButtons() {
   // button width: at least 44px touch target, grows a bit on desktop
